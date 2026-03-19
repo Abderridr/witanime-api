@@ -44,7 +44,7 @@ def get_anime(slug):
     url = f'{BASE_URL}/anime/{slug}/'
     res = requests.get(url, headers=HEADERS)
     soup = BeautifulSoup(res.text, 'html.parser')
-    
+
     episodes = []
     for ep in soup.select('.all-episodes-list li a'):
         ep_url = ep.get('href', '')
@@ -52,17 +52,24 @@ def get_anime(slug):
             'title': ep.text.strip(),
             'url': ep_url
         })
-    
-    title = soup.select_one('.anime-title')
-    cover = soup.select_one('.anime-cover img')
-    desc = soup.select_one('.anime-story')
-    
+
+    title = soup.select_one('.anime-details-title h1') or soup.select_one('h1')
+    cover = soup.select_one('.anime-cover img') or soup.select_one('.img-responsive')
+    desc = soup.select_one('.anime-story') or soup.select_one('.story')
+
+    all_h1 = [h.text.strip() for h in soup.select('h1')]
+    all_imgs = [i.get('src','') for i in soup.select('img')][:5]
+    all_ep_links = [a.get('href','') for a in soup.select('a') if 'episode' in a.get('href','')][:5]
+
     return jsonify({
         'title': title.text.strip() if title else '',
         'cover': cover.get('src') if cover else '',
         'description': desc.text.strip() if desc else '',
         'episodes': episodes,
-        'status': res.status_code
+        'status': res.status_code,
+        'debug_h1': all_h1,
+        'debug_imgs': all_imgs,
+        'debug_ep_links': all_ep_links
     })
 
 @app.route('/episode/<path:slug>')
@@ -70,7 +77,7 @@ def get_episode(slug):
     url = f'{BASE_URL}/episode/{slug}/'
     res = requests.get(url, headers=HEADERS)
     soup = BeautifulSoup(res.text, 'html.parser')
-    
+
     servers = []
     for link in soup.select('.server-link'):
         server_id = link.get('data-server-id')
@@ -80,7 +87,7 @@ def get_episode(slug):
                 'id': server_id,
                 'name': name_el.text.strip()
             })
-    
+
     return jsonify({
         'servers': servers,
         'url': url,
@@ -91,7 +98,7 @@ def get_episode(slug):
 def latest():
     res = requests.get(BASE_URL, headers=HEADERS)
     soup = BeautifulSoup(res.text, 'html.parser')
-    
+
     episodes = []
     for item in soup.select('.last-episode-container'):
         title = item.select_one('.anime-title')
@@ -105,7 +112,7 @@ def latest():
                 'image': img.get('src') if img else None,
                 'episode': ep_num.text.strip() if ep_num else ''
             })
-    
+
     return jsonify({'episodes': episodes, 'status': res.status_code})
 
 if __name__ == '__main__':
