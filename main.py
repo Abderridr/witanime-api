@@ -83,10 +83,20 @@ def get_episode(slug):
                 'name': name_el.text.strip()
             })
 
+    all_classes = list(set([
+        c
+        for tag in soup.find_all(True)
+        for c in tag.get('class', [])
+    ]))[:30]
+
+    iframes = [i.get('src', '') for i in soup.select('iframe')]
+
     return jsonify({
         'servers': servers,
         'url': url,
-        'status': res.status_code
+        'status': res.status_code,
+        'debug_classes': all_classes,
+        'debug_iframes': iframes
     })
 
 @app.route('/latest')
