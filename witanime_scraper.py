@@ -21,16 +21,14 @@ class WitAnimeScraper:
         
         # Headers for compatibility with main.py
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64 ) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
 
     def get_latest_episodes(self):
         """Scrapes the latest episodes using ScraperAPI to bypass Cloudflare."""
         try:
-            # We use the proxy to bypass the "Just a moment" screen
             response = requests.get(self.base_url, proxies=self.proxies, verify=False, timeout=60)
             if response.status_code != 200:
-                print(f"Failed to fetch homepage: {response.status_code}")
                 return []
 
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -40,8 +38,8 @@ class WitAnimeScraper:
                 href = a['href']
                 if '/episode/' in href:
                     title = a.get('title') or (a.find('h3').text.strip() if a.find('h3') else a.text.strip())
-                    if title:
-                        full_url = href if href.startswith('http' ) else f"{self.base_url.rstrip('/')}/{href.lstrip('/')}"
+                    if title and "المزيد من الحلقات" not in title:
+                        full_url = href if href.startswith('http') else f"{self.base_url.rstrip('/')}/{href.lstrip('/')}"
                         episodes.append({
                             'title': title,
                             'url': full_url
@@ -78,20 +76,24 @@ class WitAnimeScraper:
                     genres.append(a.text.strip())
             details['genres'] = list(set(genres))
             
-            for element in soup.find_all(['li', 'span', 'div']):
+            # Improved info extraction for year, status, etc.
+            info_container = soup.find('div', class_='anime-info') or soup
+            for element in info_container.find_all(['li', 'span', 'div']):
                 text = element.text.strip()
-                if 'بداية العرض:' in text:
-                    details['year'] = text.split(':')[-1].strip()
-                elif 'حالة الأنمي:' in text:
-                    details['status'] = text.split(':')[-1].strip()
-                elif 'عدد الحلقات:' in text:
-                    details['episodes_count'] = text.split(':')[-1].strip()
-                elif 'مدة الحلقة:' in text:
-                    details['duration'] = text.split(':')[-1].strip()
-                elif 'الموسم:' in text:
-                    details['season'] = text.split(':')[-1].strip()
-                elif 'المصدر:' in text:
-                    details['source'] = text.split(':')[-1].strip()
+                if ':' in text:
+                    key, val = text.split(':', 1)
+                    key = key.strip()
+                    val = val.strip()
+                    if 'بداية العرض' in key: details['year'] = val
+                    elif 'حالة الأنمي' in key: details['status'] = val
+                    elif 'عدد الحلقات' in key: details['episodes_count'] = val
+                    elif 'مدة الحلقة' in key: details['duration'] = val
+                    elif 'الموسم' in key: details['season'] = val
+                    elif 'المصدر' in key: details['source'] = val
+            
+            # Fallback for description
+            desc_tag = soup.find('p', class_='anime-story') or soup.find('div', class_='anime-story')
+            details['description'] = desc_tag.text.strip() if desc_tag else "No description available."
             
             mal_link = soup.find('a', href=re.compile(r'myanimelist\.net/anime/'))
             if mal_link:
@@ -120,23 +122,47 @@ class WitAnimeScraper:
             if h3_title:
                 data['title'] = h3_title.text.strip()
             
+            # Watch servers
             for li in soup.find_all('li'):
                 text = li.text.lower()
                 if any(s in text for s in ['videa', 'streamwish', 'yonaplay', 'multi', 'server']):
                     data['watch_servers'].append(li.text.strip())
             
-            current_quality = "Unknown"
-            for element in soup.find_all(['h3', 'li', 'a', 'span']):
-                text = element.text.strip()
-                if 'الجودة' in text:
-                    current_quality = text
+            # Improved Download links extraction
+            # Look for quality sections
+            quality_sections = soup.find_all(['div', 'ul'], class_=re.compile(r'quality|download'))
+            if not quality_sections:
+                quality_sections = [soup] # Fallback to whole page
                 
-                if element.name == 'a' and element.get('href'):
-                    href = element['href']
-                    if any(d in href.lower() for d in ['mediafire', 'workupload', 'mp4upload', 'gofile', 'hexload', 'mega.nz']):
+            for section in quality_sections:
+                current_quality = "Unknown"
+                # Try to find quality header within or before section
+                q_header = section.find_previous(['h3', 'div'], string=re.compile(r'الجودة'))
+                if q_header:
+                    current_quality = q_header.text.strip()
+                
+                for a in section.find_all('a', href=True):
+                    href = a['href']
+                    text = a.text.strip()
+                    # Check for quality in link text if not found in header
+                    if 'الجودة' in text:
+                        current_quality = text
+                    
+                    if any(d in href.lower() for d in ['mediafire', 'workupload', 'mp4upload', 'gofile', 'hexload', 'mega.nz', 'drive.google']):
                         data['download_links'].append({
                             'quality': current_quality,
-                            'host': text if len(text) < 20 else "Download",
+                            'host': text if len(text) < 30 else "Download",
+                            'url': href
+                        })
+            
+            # Final fallback: just grab any link that looks like a download host
+            if not data['download_links']:
+                for a in soup.find_all('a', href=True):
+                    href = a['href']
+                    if any(d in href.lower() for d in ['mediafire', 'workupload', 'gofile', 'mega.nz']):
+                        data['download_links'].append({
+                            'quality': "Unknown",
+                            'host': a.text.strip()[:20] or "Download",
                             'url': href
                         })
             
