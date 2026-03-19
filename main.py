@@ -47,17 +47,26 @@ def anime_info():
     if not anime_id: return jsonify({'error': 'Missing id'}), 400
     anime_url = f"https://witanime.you/anime/{anime_id}/"
     details = scraper.get_anime_details(anime_url)
-    if not details: return jsonify({'error': 'Anime not found'}), 404
+    if not details: return jsonify({'error': f'Anime not found at {anime_url}'}), 404
     return jsonify(details)
 
 @app.route('/anime/witanime/watch', methods=['GET'])
 def watch_episode():
     episode_id = request.args.get('episodeId')
     if not episode_id: return jsonify({'error': 'Missing episodeId'}), 400
+    
+    # Correctly decode the episodeId which might contain Arabic characters
     decoded_id = unquote(episode_id)
     episode_url = f"https://witanime.you/episode/{decoded_id}/"
+    
     data = scraper.get_episode_data(episode_url)
-    if not data: return jsonify({'error': 'Episode not found'}), 404
+    if not data: 
+        return jsonify({
+            'error': 'Episode not found',
+            'attempted_url': episode_url,
+            'decoded_id': decoded_id
+        }), 404
+        
     sources = [{'url': l['url'], 'isM3U8': '.m3u8' in l['url'].lower(), 'quality': l['quality']} for l in data.get('download_links', [])]
     return jsonify({
         'headers': {'Referer': 'https://witanime.you/', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'},
