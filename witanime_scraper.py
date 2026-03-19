@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import re
 import urllib3
+from urllib.parse import urlencode
 
 # Disable SSL warnings for proxy use
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -24,11 +25,28 @@ class WitAnimeScraper:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
 
-    def get_latest_episodes(self):
-        """Scrapes the latest episodes using ScraperAPI to bypass Cloudflare."""
+    def _get_with_scraperapi(self, url):
+        """Helper to call ScraperAPI with advanced features to bypass Cloudflare."""
+        params = {
+            'api_key': self.api_key,
+            'url': url,
+            'render': 'true',  # Render JavaScript to bypass advanced challenges
+            'premium': 'true'  # Use premium residential IPs
+        }
+        api_url = f"http://api.scraperapi.com?{urlencode(params)}"
         try:
-            response = requests.get(self.base_url, proxies=self.proxies, verify=False, timeout=60)
-            if response.status_code != 200:
+            # We call the API directly instead of using proxies for better reliability with render=true
+            response = requests.get(api_url, timeout=90)
+            return response
+        except Exception as e:
+            print(f"ScraperAPI Error: {e}")
+            return None
+
+    def get_latest_episodes(self):
+        """Scrapes the latest episodes using ScraperAPI advanced features."""
+        try:
+            response = self._get_with_scraperapi(self.base_url)
+            if not response or response.status_code != 200:
                 return []
 
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -54,14 +72,14 @@ class WitAnimeScraper:
                     
             return unique_episodes
         except Exception as e:
-            print(f"Proxy Error (Latest): {e}")
+            print(f"Error (Latest): {e}")
             return []
 
     def get_anime_details(self, anime_url):
-        """Scrapes details for a specific anime using ScraperAPI."""
+        """Scrapes details for a specific anime using ScraperAPI advanced features."""
         try:
-            response = requests.get(anime_url, proxies=self.proxies, verify=False, timeout=60)
-            if response.status_code != 200:
+            response = self._get_with_scraperapi(anime_url)
+            if not response or response.status_code != 200:
                 return None
 
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -77,13 +95,12 @@ class WitAnimeScraper:
             details['genres'] = list(set(genres))
             
             # Improved info extraction for year, status, etc.
-            info_container = soup.find('div', class_='anime-info') or soup
-            for element in info_container.find_all(['li', 'span', 'div']):
+            for element in soup.find_all(['li', 'span', 'div']):
                 text = element.text.strip()
                 if ':' in text:
-                    key, val = text.split(':', 1)
-                    key = key.strip()
-                    val = val.strip()
+                    parts = text.split(':', 1)
+                    key = parts[0].strip()
+                    val = parts[1].strip()
                     if 'بداية العرض' in key: details['year'] = val
                     elif 'حالة الأنمي' in key: details['status'] = val
                     elif 'عدد الحلقات' in key: details['episodes_count'] = val
@@ -91,7 +108,6 @@ class WitAnimeScraper:
                     elif 'الموسم' in key: details['season'] = val
                     elif 'المصدر' in key: details['source'] = val
             
-            # Fallback for description
             desc_tag = soup.find('p', class_='anime-story') or soup.find('div', class_='anime-story')
             details['description'] = desc_tag.text.strip() if desc_tag else "No description available."
             
@@ -101,14 +117,14 @@ class WitAnimeScraper:
                 
             return details
         except Exception as e:
-            print(f"Proxy Error (Details): {e}")
+            print(f"Error (Details): {e}")
             return None
 
     def get_episode_data(self, episode_url):
-        """Scrapes video servers and download links using ScraperAPI."""
+        """Scrapes video servers and download links using ScraperAPI advanced features."""
         try:
-            response = requests.get(episode_url, proxies=self.proxies, verify=False, timeout=60)
-            if response.status_code != 200:
+            response = self._get_with_scraperapi(episode_url)
+            if not response or response.status_code != 200:
                 return None
 
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -129,51 +145,33 @@ class WitAnimeScraper:
                     data['watch_servers'].append(li.text.strip())
             
             # Improved Download links extraction
-            # Look for quality sections
-            quality_sections = soup.find_all(['div', 'ul'], class_=re.compile(r'quality|download'))
-            if not quality_sections:
-                quality_sections = [soup] # Fallback to whole page
+            for a in soup.find_all('a', href=True):
+                href = a['href']
+                text = a.text.strip()
                 
-            for section in quality_sections:
-                current_quality = "Unknown"
-                # Try to find quality header within or before section
-                q_header = section.find_previous(['h3', 'div'], string=re.compile(r'الجودة'))
-                if q_header:
-                    current_quality = q_header.text.strip()
-                
-                for a in section.find_all('a', href=True):
-                    href = a['href']
-                    text = a.text.strip()
-                    # Check for quality in link text if not found in header
-                    if 'الجودة' in text:
-                        current_quality = text
+                # Check for common download hosts
+                if any(d in href.lower() for d in ['mediafire', 'workupload', 'mp4upload', 'gofile', 'hexload', 'mega.nz', 'drive.google']):
+                    # Try to find quality from parent or previous elements
+                    quality = "Unknown"
+                    parent_text = a.parent.text
+                    if 'FHD' in parent_text or '1080' in parent_text: quality = "FHD"
+                    elif 'HD' in parent_text or '720' in parent_text: quality = "HD"
+                    elif 'SD' in parent_text or '480' in parent_text: quality = "SD"
                     
-                    if any(d in href.lower() for d in ['mediafire', 'workupload', 'mp4upload', 'gofile', 'hexload', 'mega.nz', 'drive.google']):
-                        data['download_links'].append({
-                            'quality': current_quality,
-                            'host': text if len(text) < 30 else "Download",
-                            'url': href
-                        })
-            
-            # Final fallback: just grab any link that looks like a download host
-            if not data['download_links']:
-                for a in soup.find_all('a', href=True):
-                    href = a['href']
-                    if any(d in href.lower() for d in ['mediafire', 'workupload', 'gofile', 'mega.nz']):
-                        data['download_links'].append({
-                            'quality': "Unknown",
-                            'host': a.text.strip()[:20] or "Download",
-                            'url': href
-                        })
+                    data['download_links'].append({
+                        'quality': quality,
+                        'host': text if len(text) < 30 else "Download",
+                        'url': href
+                    })
             
             return data
         except Exception as e:
-            print(f"Proxy Error (Episode): {e}")
+            print(f"Error (Episode): {e}")
             return None
 
 if __name__ == "__main__":
     scraper = WitAnimeScraper()
-    print("Testing latest episodes with ScraperAPI...")
+    print("Testing latest episodes with ScraperAPI Advanced...")
     latest = scraper.get_latest_episodes()
     print(f"Found {len(latest)} episodes.")
     for ep in latest[:5]:
