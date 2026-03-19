@@ -110,8 +110,3 @@ def latest():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=3000)
-```
-
-Push to GitHub → Railway redeploys → then test:
-```
-https://witanime-api-production.up.railway.app/test
