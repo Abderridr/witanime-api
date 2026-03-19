@@ -9,8 +9,9 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 class WitAnimeScraper:
     def __init__(self):
         self.base_url = "https://witanime.you"
-        self.api_key = "70b7ccc8c48d7bf60ee80ab2ee12ff09" 
-        self.headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64 ) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        # IMPORTANT: Replace this with your actual ScraperAPI key
+        self.api_key = "YOUR_SCRAPERAPI_KEY" 
+        self.headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 
     def _get_with_scraperapi(self, url, render=False):
         """Helper to call ScraperAPI. Only uses render when needed to save time."""
@@ -19,7 +20,7 @@ class WitAnimeScraper:
             params['render'] = 'true'
             params['premium'] = 'true'
         
-        api_url = f"http://api.scraperapi.com?{urlencode(params )}"
+        api_url = f"http://api.scraperapi.com?{urlencode(params)}"
         try:
             # Increased timeout to match Gunicorn
             return requests.get(api_url, timeout=110)
@@ -37,7 +38,7 @@ class WitAnimeScraper:
             if '/episode/' in a['href']:
                 title = a.get('title') or (a.find('h3').text.strip() if a.find('h3') else a.text.strip())
                 if title and "المزيد" not in title:
-                    episodes.append({'title': title, 'url': a['href'] if a['href'].startswith('http' ) else f"{self.base_url}{a['href']}"})
+                    episodes.append({'title': title, 'url': a['href'] if a['href'].startswith('http') else f"{self.base_url}{a['href']}"})
         seen = set()
         return [e for e in episodes if not (e['url'] in seen or seen.add(e['url']))]
 
@@ -49,9 +50,10 @@ class WitAnimeScraper:
         for el in soup.find_all(['li', 'span']):
             txt = el.text.strip()
             if ':' in txt:
-                k, v = txt.split(':', 1)
-                if 'بداية العرض' in k: details['year'] = v.strip()
-                elif 'حالة الأنمي' in k: details['status'] = v.strip()
+                parts = txt.split(':', 1)
+                k, v = parts[0].strip(), parts[1].strip()
+                if 'بداية العرض' in k: details['year'] = v
+                elif 'حالة الأنمي' in k: details['status'] = v
         return details
 
     def get_episode_data(self, episode_url):
