@@ -1,8 +1,6 @@
 from flask import Flask, jsonify
 import requests
 from bs4 import BeautifulSoup
-import re
-import base64
 
 app = Flask(__name__)
 
@@ -46,10 +44,12 @@ def get_anime(slug):
     soup = BeautifulSoup(res.text, 'html.parser')
 
     episodes = []
+    seen = set()
     for ep in soup.select('a[href*="episode"]'):
         ep_url = ep.get('href', '')
         ep_title = ep.text.strip()
-        if ep_url and ep_title and 'الحلقة' in ep_title:
+        if ep_url and ep_title and 'الحلقة' in ep_title and ep_url not in seen:
+            seen.add(ep_url)
             episodes.append({
                 'title': ep_title,
                 'url': ep_url
@@ -73,30 +73,22 @@ def get_episode(slug):
     res = requests.get(url, headers=HEADERS)
     soup = BeautifulSoup(res.text, 'html.parser')
 
-    servers = []
-    for link in soup.select('.server-link'):
-        server_id = link.get('data-server-id')
-        name_el = link.select_one('.ser')
-        if name_el:
-            servers.append({
-                'id': server_id,
-                'name': name_el.text.strip()
+    iframes = []
+    seen = set()
+    for i in soup.select('iframe'):
+        src = i.get('src', '')
+        if src and src not in seen:
+            seen.add(src)
+            domain = src.split('/')[2] if len(src.split('/')) > 2 else src
+            iframes.append({
+                'url': src,
+                'server': domain
             })
 
-    all_classes = list(set([
-        c
-        for tag in soup.find_all(True)
-        for c in tag.get('class', [])
-    ]))[:30]
-
-    iframes = [i.get('src', '') for i in soup.select('iframe')]
-
     return jsonify({
-        'servers': servers,
+        'iframes': iframes,
         'url': url,
-        'status': res.status_code,
-        'debug_classes': all_classes,
-        'debug_iframes': iframes
+        'status': res.status_code
     })
 
 @app.route('/latest')
