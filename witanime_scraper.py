@@ -3,7 +3,6 @@ from bs4 import BeautifulSoup
 import json
 import time
 import re
-import sys
 
 class WitAnimeScraper:
     def __init__(self):
@@ -25,14 +24,24 @@ class WitAnimeScraper:
             soup = BeautifulSoup(response.text, 'html.parser')
             episodes = []
             
-            # Find all episode links
+            # More robust search for episode links
+            # 1. Look for links containing '/episode/'
+            # 2. Look for specific classes like 'episodes-card-container' or 'episodes-list'
             for a in soup.find_all('a', href=True):
-                if '/episode/' in a['href']:
-                    title = a.get('title') or a.text.strip()
+                href = a['href']
+                if '/episode/' in href:
+                    # Try to get title from title attribute, then from nested h3, then from text
+                    title = a.get('title')
+                    if not title:
+                        h3 = a.find('h3')
+                        title = h3.text.strip() if h3 else a.text.strip()
+                    
                     if title:
+                        # Ensure absolute URL
+                        full_url = href if href.startswith('http') else f"{self.base_url.rstrip('/')}/{href.lstrip('/')}"
                         episodes.append({
                             'title': title,
-                            'url': a['href']
+                            'url': full_url
                         })
             
             # Remove duplicates while preserving order
@@ -69,21 +78,21 @@ class WitAnimeScraper:
                     genres.append(a.text.strip())
             details['genres'] = list(set(genres))
             
-            # Extract info from list items
-            for li in soup.find_all('li'):
-                text = li.text.strip()
+            # Extract info from list items or spans
+            for element in soup.find_all(['li', 'span', 'div']):
+                text = element.text.strip()
                 if 'بداية العرض:' in text:
-                    details['year'] = text.replace('بداية العرض:', '').strip()
+                    details['year'] = text.split(':')[-1].strip()
                 elif 'حالة الأنمي:' in text:
-                    details['status'] = text.replace('حالة الأنمي:', '').strip()
+                    details['status'] = text.split(':')[-1].strip()
                 elif 'عدد الحلقات:' in text:
-                    details['episodes_count'] = text.replace('عدد الحلقات:', '').strip()
+                    details['episodes_count'] = text.split(':')[-1].strip()
                 elif 'مدة الحلقة:' in text:
-                    details['duration'] = text.replace('مدة الحلقة:', '').strip()
+                    details['duration'] = text.split(':')[-1].strip()
                 elif 'الموسم:' in text:
-                    details['season'] = text.replace('الموسم:', '').strip()
+                    details['season'] = text.split(':')[-1].strip()
                 elif 'المصدر:' in text:
-                    details['source'] = text.replace('المصدر:', '').strip()
+                    details['source'] = text.split(':')[-1].strip()
             
             # Extract MAL link
             mal_link = soup.find('a', href=re.compile(r'myanimelist\.net/anime/'))
@@ -104,29 +113,42 @@ class WitAnimeScraper:
 
             soup = BeautifulSoup(response.text, 'html.parser')
             data = {
-                'title': soup.find('h3').text.strip() if soup.find('h3') else "Unknown",
+                'title': "Unknown",
                 'watch_servers': [],
                 'download_links': []
             }
             
-            # Watch servers
-            for li in soup.find_all('li'):
-                if any(s in li.text.lower() for s in ['videa', 'streamwish', 'yonaplay', 'multi']):
+            # Extract title
+            h3_title = soup.find('h3')
+            if h3_title:
+                data['title'] = h3_title.text.strip()
+            
+            # Watch servers - look for specific IDs or classes
+            # Often in a list with id="episode-servers"
+            server_list = soup.find(['ul', 'div'], id=re.compile(r'servers|watch'))
+            if not server_list:
+                # Fallback: look for list items that look like servers
+                for li in soup.find_all('li'):
+                    if any(s in li.text.lower() for s in ['videa', 'streamwish', 'yonaplay', 'multi', 'server']):
+                        data['watch_servers'].append(li.text.strip())
+            else:
+                for li in server_list.find_all('li'):
                     data['watch_servers'].append(li.text.strip())
             
             # Download links
             current_quality = "Unknown"
-            for element in soup.find_all(['h3', 'li', 'a']):
+            for element in soup.find_all(['h3', 'li', 'a', 'span']):
                 text = element.text.strip()
                 if 'الجودة' in text:
                     current_quality = text
                 
                 if element.name == 'a' and element.get('href'):
                     href = element['href']
-                    if any(d in href for d in ['mediafire', 'workupload', 'mp4upload', 'gofile', 'hexload']):
+                    # Check for common download hosts
+                    if any(d in href.lower() for d in ['mediafire', 'workupload', 'mp4upload', 'gofile', 'hexload', 'mega.nz']):
                         data['download_links'].append({
                             'quality': current_quality,
-                            'host': text,
+                            'host': text if len(text) < 20 else "Download",
                             'url': href
                         })
             
@@ -135,30 +157,10 @@ class WitAnimeScraper:
             print(f"Error scraping episode data: {e}")
             return None
 
-def main():
-    scraper = WitAnimeScraper()
-    
-    # Example usage
-    print("Fetching latest episodes...")
-    latest = scraper.get_latest_episodes()
-    
-    results = []
-    for ep in latest[:5]:
-        print(f"Processing: {ep['title']}")
-        ep_data = scraper.get_episode_data(ep['url'])
-        if ep_data:
-            results.append({
-                'episode_title': ep['title'],
-                'episode_url': ep['url'],
-                'data': ep_data
-            })
-        time.sleep(1) # Be polite to the server
-        
-    # Save results to a file
-    with open('witanime_results.json', 'w', encoding='utf-8') as f:
-        json.dump(results, f, ensure_ascii=False, indent=2)
-    
-    print(f"\nScraping complete. Results saved to witanime_results.json")
-
 if __name__ == "__main__":
-    main()
+    scraper = WitAnimeScraper()
+    print("Testing latest episodes...")
+    latest = scraper.get_latest_episodes()
+    print(f"Found {len(latest)} episodes.")
+    for ep in latest[:3]:
+        print(f"- {ep['title']}: {ep['url']}")
