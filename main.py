@@ -46,10 +46,12 @@ def get_anime(slug):
     soup = BeautifulSoup(res.text, 'html.parser')
 
     episodes = []
-    for ep in soup.select('.all-episodes-list li a'):
-        ep_url = ep.get('href', '')
+for ep in soup.select('a[href*="episode"]'):
+    ep_url = ep.get('href', '')
+    ep_title = ep.text.strip()
+    if ep_url and ep_title and 'الحلقة' in ep_title:
         episodes.append({
-            'title': ep.text.strip(),
+            'title': ep_title,
             'url': ep_url
         })
 
