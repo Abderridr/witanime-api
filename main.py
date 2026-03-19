@@ -1,6 +1,8 @@
 from flask import Flask, jsonify
 import requests
 from bs4 import BeautifulSoup
+import re
+import json
 
 app = Flask(__name__)
 
@@ -10,6 +12,13 @@ HEADERS = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
     'Accept-Language': 'ar,en-US;q=0.7,en;q=0.3',
     'Referer': 'https://w1.anime4up.rest/',
+}
+
+OKRU_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Referer': 'https://ok.ru/',
 }
 
 @app.route('/test')
@@ -89,6 +98,40 @@ def get_episode(slug):
         'iframes': iframes,
         'url': url,
         'status': res.status_code
+    })
+
+@app.route('/okru')
+def get_okru():
+    video_url = requests.utils.unquote(requests.compat.urlparse(
+        requests.Request('GET', 'http://x.com', params={'url': ''}).prepare().url
+    ).query.split('url=')[-1]) if False else None
+
+    from flask import request
+    video_url = request.args.get('url', '')
+    if not video_url:
+        return jsonify({'error': 'url parameter required'})
+
+    res = requests.get(video_url, headers=OKRU_HEADERS)
+    
+    match = re.search(r'"videos":\[(.*?)\]', res.text)
+    if not match:
+        match = re.search(r'var videoData\s*=\s*({.*?});', res.text)
+    
+    html_match = re.search(r'data-options="([^"]+)"', res.text)
+    if html_match:
+        try:
+            data = json.loads(html_match.group(1).replace('&quot;', '"'))
+            videos = data.get('flashvars', {}).get('metadata', {}).get('videos', [])
+            if videos:
+                mp4_links = [{'quality': v.get('name', ''), 'url': v.get('url', '')} for v in videos]
+                return jsonify({'mp4_links': mp4_links, 'status': 200})
+        except:
+            pass
+
+    return jsonify({
+        'status': res.status_code,
+        'error': 'could not extract video',
+        'length': len(res.text)
     })
 
 @app.route('/latest')
