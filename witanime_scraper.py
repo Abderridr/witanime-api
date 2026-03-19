@@ -145,24 +145,41 @@ class WitAnimeScraper:
                     data['watch_servers'].append(li.text.strip())
             
             # Improved Download links extraction
-            for a in soup.find_all('a', href=True):
-                href = a['href']
-                text = a.text.strip()
+            # The website groups links under quality headers
+            current_quality = "Unknown"
+            for element in soup.find_all(['h3', 'li', 'a', 'span']):
+                text = element.text.strip()
                 
-                # Check for common download hosts
-                if any(d in href.lower() for d in ['mediafire', 'workupload', 'mp4upload', 'gofile', 'hexload', 'mega.nz', 'drive.google']):
-                    # Try to find quality from parent or previous elements
-                    quality = "Unknown"
-                    parent_text = a.parent.text
-                    if 'FHD' in parent_text or '1080' in parent_text: quality = "FHD"
-                    elif 'HD' in parent_text or '720' in parent_text: quality = "HD"
-                    elif 'SD' in parent_text or '480' in parent_text: quality = "SD"
+                # Detect quality header
+                if 'الجودة' in text:
+                    if 'SD' in text or 'المتوسطة' in text: current_quality = "SD"
+                    elif 'HD' in text or 'العالية' in text: current_quality = "HD"
+                    elif 'FHD' in text or 'الخارقة' in text: current_quality = "FHD"
+                    else: current_quality = text
+                
+                # Detect download link
+                if element.name == 'a' and element.get('href'):
+                    href = element['href']
+                    link_text = element.text.strip().lower()
                     
-                    data['download_links'].append({
-                        'quality': quality,
-                        'host': text if len(text) < 30 else "Download",
-                        'url': href
-                    })
+                    # Check for common download hosts
+                    if any(d in href.lower() for d in ['mediafire', 'workupload', 'mp4upload', 'gofile', 'hexload', 'mega.nz', 'drive.google']):
+                        data['download_links'].append({
+                            'quality': current_quality,
+                            'host': link_text if len(link_text) < 30 else "Download",
+                            'url': href
+                        })
+            
+            # Final fallback: just grab any link that looks like a download host
+            if not data['download_links']:
+                for a in soup.find_all('a', href=True):
+                    href = a['href']
+                    if any(d in href.lower() for d in ['mediafire', 'workupload', 'gofile', 'mega.nz']):
+                        data['download_links'].append({
+                            'quality': "Unknown",
+                            'host': a.text.strip()[:20] or "Download",
+                            'url': href
+                        })
             
             return data
         except Exception as e:
