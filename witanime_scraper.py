@@ -19,17 +19,16 @@ class WitAnimeScraper:
         if render:
             params['render'] = 'true'
             params['premium'] = 'true'
+            params['wait_for_selector'] = 'a[href*="mediafire"], a[href*="workupload"], a[href*="gofile"]'
         
         api_url = f"http://api.scraperapi.com?{urlencode(params)}"
         try:
-            # Increased timeout to match Gunicorn
             return requests.get(api_url, timeout=110)
         except Exception as e:
             print(f"ScraperAPI Error: {e}")
             return None
 
     def get_latest_episodes(self):
-        # Homepage usually doesn't need rendering, making it faster
         response = self._get_with_scraperapi(self.base_url, render=False)
         if not response or response.status_code != 200: return []
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -57,18 +56,54 @@ class WitAnimeScraper:
         return details
 
     def get_episode_data(self, episode_url):
-        # Episode pages often need rendering to show download links
+        # Episode pages need rendering to show download links
         response = self._get_with_scraperapi(episode_url, render=True)
         if not response or response.status_code != 200: return None
         soup = BeautifulSoup(response.text, 'html.parser')
         data = {'watch_servers': [li.text.strip() for li in soup.find_all('li') if any(s in li.text.lower() for s in ['videa', 'streamwish', 'yonaplay', 'multi'])], 'download_links': []}
-        q = "Unknown"
-        for el in soup.find_all(['h3', 'li', 'a', 'span']):
-            txt = el.text.strip()
-            if 'الجودة' in txt:
-                if 'SD' in txt: q = "SD"
-                elif 'HD' in txt: q = "HD"
-                elif 'FHD' in txt: q = "FHD"
-            if el.name == 'a' and any(d in el.get('href', '').lower() for d in ['mediafire', 'workupload', 'gofile', 'mega.nz']):
-                data['download_links'].append({'quality': q, 'host': el.text.strip()[:20], 'url': el['href']})
+        
+        # Aggressive search for download links
+        # Look for all <a> tags and check their href and text
+        current_quality = "Unknown"
+        for element in soup.find_all(['h3', 'li', 'a', 'span', 'div']):
+            text = element.text.strip()
+            
+            # Detect quality header
+            if 'الجودة' in text:
+                if 'SD' in text or 'المتوسطة' in text: current_quality = "SD"
+                elif 'HD' in text or 'العالية' in text: current_quality = "HD"
+                elif 'FHD' in text or 'الخارقة' in text: current_quality = "FHD"
+            
+            if element.name == 'a' and element.get('href'):
+                href = element['href']
+                link_text = element.text.strip().lower()
+                
+                # Check for common download hosts
+                if any(d in href.lower() for d in ['mediafire', 'workupload', 'mp4upload', 'gofile', 'hexload', 'mega.nz', 'drive.google']):
+                    data['download_links'].append({
+                        'quality': current_quality,
+                        'host': link_text if len(link_text) < 30 else "Download",
+                        'url': href
+                    })
+        
+        # Final fallback: just grab any link that looks like a download host from the entire page
+        if not data['download_links']:
+            for a in soup.find_all('a', href=True):
+                href = a['href']
+                if any(d in href.lower() for d in ['mediafire', 'workupload', 'gofile', 'mega.nz']):
+                    data['download_links'].append({
+                        'quality': "Unknown",
+                        'host': a.text.strip()[:20] or "Download",
+                        'url': href
+                    })
+        
+        # Remove duplicates
+        seen_urls = set()
+        unique_links = []
+        for link in data['download_links']:
+            if link['url'] not in seen_urls:
+                unique_links.append(link)
+                seen_urls.add(link['url'])
+        data['download_links'] = unique_links
+        
         return data
