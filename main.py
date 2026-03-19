@@ -2,6 +2,8 @@ from flask import Flask, jsonify, request
 from witanime_scraper import WitAnimeScraper
 import time
 import re
+import os
+from urllib.parse import unquote
 
 app = Flask(__name__)
 scraper = WitAnimeScraper()
@@ -9,6 +11,18 @@ scraper = WitAnimeScraper()
 def slugify(text):
     # Simple slugify for IDs
     return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
+
+@app.route('/', methods=['GET'])
+def index():
+    return jsonify({
+        'message': 'Welcome to WitAnime Scraper API! 🎉',
+        'status': 'Running',
+        'endpoints': [
+            '/anime/witanime/recent-episodes',
+            '/anime/witanime/info?id={id}',
+            '/anime/witanime/watch?episodeId={episodeId}'
+        ]
+    })
 
 @app.route('/anime/witanime/recent-episodes', methods=['GET'])
 def recent_episodes():
@@ -26,10 +40,14 @@ def recent_episodes():
             anime_title = ep['title']
             episode_num = "1"
             
+        # The episodeId is the slug from the URL (e.g., jigokuraku-2nd-season-الحلقة-10)
+        # We use unquote to handle the Arabic characters correctly
+        episode_id = ep['url'].strip('/').split('/')[-1]
+            
         results.append({
             'id': slugify(anime_title),
             'title': anime_title,
-            'episodeId': ep['url'].split('/')[-2], # Use the slug from URL
+            'episodeId': episode_id, 
             'episodeNumber': int(episode_num),
             'url': ep['url']
         })
@@ -46,13 +64,12 @@ def anime_info():
     if not anime_id:
         return jsonify({'error': 'Missing id parameter'}), 400
     
-    # In a real app, we'd map the ID back to a URL. 
-    # For this demo, we'll assume the ID is the slug.
+    # Map the ID back to a URL
     anime_url = f"https://witanime.you/anime/{anime_id}/"
     details = scraper.get_anime_details(anime_url)
     
     if not details:
-        return jsonify({'error': 'Anime not found'}), 404
+        return jsonify({'error': f'Anime not found at {anime_url}'}), 404
         
     return jsonify({
         'id': anime_id,
@@ -60,7 +77,8 @@ def anime_info():
         'genres': details.get('genres'),
         'status': details.get('status'),
         'releaseDate': details.get('year'),
-        # Add more fields as needed by the app
+        'episodes': details.get('episodes_count'),
+        'description': details.get('description', 'No description available.')
     })
 
 @app.route('/anime/witanime/watch', methods=['GET'])
@@ -69,19 +87,24 @@ def watch_episode():
     if not episode_id:
         return jsonify({'error': 'Missing episodeId parameter'}), 400
     
-    episode_url = f"https://witanime.you/episode/{episode_id}/"
+    # Ensure the episode_id is properly decoded if it contains % encoding
+    decoded_id = unquote(episode_id)
+    episode_url = f"https://witanime.you/episode/{decoded_id}/"
+    
     data = scraper.get_episode_data(episode_url)
     
     if not data:
-        return jsonify({'error': 'Episode not found'}), 404
+        return jsonify({
+            'error': 'Episode not found',
+            'attempted_url': episode_url
+        }), 404
         
     # Format for Consumet 'watch' endpoint
     sources = []
     for link in data.get('download_links', []):
-        # We'll treat download links as sources for the player if they are direct-ish
         sources.append({
             'url': link['url'],
-            'isM3U8': '.m3u8' in link['url'],
+            'isM3U8': '.m3u8' in link['url'].lower(),
             'quality': link['quality']
         })
         
@@ -95,4 +118,5 @@ def watch_episode():
     })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=3000)
+    port = int(os.environ.get('PORT', 3000))
+    app.run(host='0.0.0.0', port=port)
