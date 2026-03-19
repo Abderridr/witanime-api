@@ -1,29 +1,34 @@
-import cloudscraper
+import requests
 from bs4 import BeautifulSoup
 import re
+import urllib3
+
+# Disable SSL warnings for proxy use
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class WitAnimeScraper:
     def __init__(self):
         self.base_url = "https://witanime.you"
-        # Standard headers for compatibility with main.py
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
+        # IMPORTANT: Replace this with your actual ScraperAPI key
+        self.api_key = "70b7ccc8c48d7bf60ee80ab2ee12ff09" 
+        
+        # ScraperAPI Proxy Configuration
+        self.proxy_url = f"http://scraperapi:{self.api_key}@proxy-server.scraperapi.com:8001"
+        self.proxies = {
+            "http": self.proxy_url,
+            "https": self.proxy_url
         }
-        # cloudscraper will handle the Cloudflare bypass
-        self.scraper = cloudscraper.create_scraper(
-            browser={
-                'browser': 'chrome',
-                'platform': 'windows',
-                'desktop': True
-            }
-        )
+        
+        # Headers for compatibility with main.py
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64 ) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
 
     def get_latest_episodes(self):
-        """Scrapes the latest episodes from the homepage using cloudscraper."""
+        """Scrapes the latest episodes using ScraperAPI to bypass Cloudflare."""
         try:
-            response = self.scraper.get(self.base_url, timeout=15)
+            # We use the proxy to bypass the "Just a moment" screen
+            response = requests.get(self.base_url, proxies=self.proxies, verify=False, timeout=60)
             if response.status_code != 200:
                 print(f"Failed to fetch homepage: {response.status_code}")
                 return []
@@ -36,7 +41,7 @@ class WitAnimeScraper:
                 if '/episode/' in href:
                     title = a.get('title') or (a.find('h3').text.strip() if a.find('h3') else a.text.strip())
                     if title:
-                        full_url = href if href.startswith('http') else f"{self.base_url.rstrip('/')}/{href.lstrip('/')}"
+                        full_url = href if href.startswith('http' ) else f"{self.base_url.rstrip('/')}/{href.lstrip('/')}"
                         episodes.append({
                             'title': title,
                             'url': full_url
@@ -51,13 +56,13 @@ class WitAnimeScraper:
                     
             return unique_episodes
         except Exception as e:
-            print(f"Error scraping latest episodes: {e}")
+            print(f"Proxy Error (Latest): {e}")
             return []
 
     def get_anime_details(self, anime_url):
-        """Scrapes details for a specific anime using cloudscraper."""
+        """Scrapes details for a specific anime using ScraperAPI."""
         try:
-            response = self.scraper.get(anime_url, timeout=15)
+            response = requests.get(anime_url, proxies=self.proxies, verify=False, timeout=60)
             if response.status_code != 200:
                 return None
 
@@ -94,13 +99,13 @@ class WitAnimeScraper:
                 
             return details
         except Exception as e:
-            print(f"Error scraping anime details: {e}")
+            print(f"Proxy Error (Details): {e}")
             return None
 
     def get_episode_data(self, episode_url):
-        """Scrapes video servers and download links for an episode using cloudscraper."""
+        """Scrapes video servers and download links using ScraperAPI."""
         try:
-            response = self.scraper.get(episode_url, timeout=15)
+            response = requests.get(episode_url, proxies=self.proxies, verify=False, timeout=60)
             if response.status_code != 200:
                 return None
 
@@ -137,12 +142,12 @@ class WitAnimeScraper:
             
             return data
         except Exception as e:
-            print(f"Error scraping episode data: {e}")
+            print(f"Proxy Error (Episode): {e}")
             return None
 
 if __name__ == "__main__":
     scraper = WitAnimeScraper()
-    print("Testing latest episodes with cloudscraper...")
+    print("Testing latest episodes with ScraperAPI...")
     latest = scraper.get_latest_episodes()
     print(f"Found {len(latest)} episodes.")
     for ep in latest[:5]:
