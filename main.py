@@ -46,32 +46,25 @@ def get_anime(slug):
     soup = BeautifulSoup(res.text, 'html.parser')
 
     episodes = []
-for ep in soup.select('a[href*="episode"]'):
-    ep_url = ep.get('href', '')
-    ep_title = ep.text.strip()
-    if ep_url and ep_title and 'الحلقة' in ep_title:
-        episodes.append({
-            'title': ep_title,
-            'url': ep_url
-        })
+    for ep in soup.select('a[href*="episode"]'):
+        ep_url = ep.get('href', '')
+        ep_title = ep.text.strip()
+        if ep_url and ep_title and 'الحلقة' in ep_title:
+            episodes.append({
+                'title': ep_title,
+                'url': ep_url
+            })
 
     title = soup.select_one('.anime-details-title h1') or soup.select_one('h1')
     cover = soup.select_one('.anime-cover img') or soup.select_one('.img-responsive')
     desc = soup.select_one('.anime-story') or soup.select_one('.story')
-
-    all_h1 = [h.text.strip() for h in soup.select('h1')]
-    all_imgs = [i.get('src','') for i in soup.select('img')][:5]
-    all_ep_links = [a.get('href','') for a in soup.select('a') if 'episode' in a.get('href','')][:5]
 
     return jsonify({
         'title': title.text.strip() if title else '',
         'cover': cover.get('src') if cover else '',
         'description': desc.text.strip() if desc else '',
         'episodes': episodes,
-        'status': res.status_code,
-        'debug_h1': all_h1,
-        'debug_imgs': all_imgs,
-        'debug_ep_links': all_ep_links
+        'status': res.status_code
     })
 
 @app.route('/episode/<path:slug>')
